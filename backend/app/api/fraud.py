@@ -1,7 +1,6 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models.database import AuditEvent
 from app.schemas.fraud import FraudCheckRequest, FraudCheckResponse
 from app.services.fraud_analyzer import FraudAnalyzerService
 
@@ -31,7 +30,7 @@ PRELOADED_SAMPLES = [
 @router.post("/analyze", response_model=FraudCheckResponse)
 def analyze_fraud_message(
     payload: FraudCheckRequest,
-    db: Session = Depends(get_db)
+    db = Depends(get_db)
 ):
     try:
         response = FraudAnalyzerService.analyze_message(
@@ -40,13 +39,15 @@ def analyze_fraud_message(
             is_demo=payload.is_demo
         )
 
-        audit = AuditEvent(
-            event_type="fraud_checked",
-            category=payload.message_type,
-            is_demo=payload.is_demo
-        )
-        db.add(audit)
-        db.commit()
+        try:
+            db.audit_events.insert_one({
+                "event_type": "fraud_checked",
+                "category": payload.message_type,
+                "is_demo": payload.is_demo,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+        except Exception:
+            pass
 
         return response
     except Exception as e:

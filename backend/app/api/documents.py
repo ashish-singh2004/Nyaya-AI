@@ -1,7 +1,6 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
-from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models.database import AuditEvent
 from app.schemas.documents import DocumentAnalysisResponse
 from app.services.doc_parser import DocumentParserService
 from app.services.ai_service import AIService
@@ -50,7 +49,7 @@ async def analyze_document(
     file: UploadFile = File(...),
     language: str = Form("en"),
     is_demo: bool = Form(False),
-    db: Session = Depends(get_db)
+    db = Depends(get_db)
 ):
     try:
         # Extract text securely
@@ -64,14 +63,16 @@ async def analyze_document(
             is_demo=is_demo
         )
 
-        # Anonymous audit metric
-        audit = AuditEvent(
-            event_type="doc_simplified",
-            category="document",
-            is_demo=is_demo
-        )
-        db.add(audit)
-        db.commit()
+        # Anonymous audit metric in MongoDB
+        try:
+            db.audit_events.insert_one({
+                "event_type": "doc_simplified",
+                "category": "document",
+                "is_demo": is_demo,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+        except Exception:
+            pass
 
         return response
     except HTTPException:

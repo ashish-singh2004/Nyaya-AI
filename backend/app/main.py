@@ -3,11 +3,8 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from sqlalchemy import text
-
 from app.core.config import settings
-from app.database import init_db, get_db
+from app.database import init_db, get_db, is_db_connected
 from app.services.ai_service import AIService
 
 from app.api.legal import router as legal_router
@@ -66,18 +63,13 @@ app.include_router(legal_aid_router, prefix=settings.API_PREFIX)
 app.include_router(sources_router, prefix=settings.API_PREFIX)
 
 @app.get(f"{settings.API_PREFIX}/health", tags=["Health"])
-def health_check(db: Session = Depends(get_db)):
-    db_connected = False
-    try:
-        db.execute(text("SELECT 1"))
-        db_connected = True
-    except Exception as e:
-        logger.error(f"Database health check failed: {e}")
-
+def health_check(db = Depends(get_db)):
+    db_connected = is_db_connected()
     return {
         "status": "healthy" if db_connected else "degraded",
         "service": "NyayaAI Backend",
         "version": settings.VERSION,
+        "database_type": "MongoDB",
         "ai_service_configured": AIService.is_ai_configured(),
         "database_connected": db_connected,
         "demo_mode_enabled": settings.DEMO_MODE_DEFAULT,

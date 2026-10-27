@@ -1,6 +1,7 @@
-from sqlalchemy.orm import Session
-from app.models.database import Scheme, LegalAidResource, LegalSource
 import json
+import logging
+
+logger = logging.getLogger("nyayaai.seed")
 
 VERIFIED_SCHEMES = [
     {
@@ -266,23 +267,56 @@ VERIFIED_LEGAL_SOURCES = [
     }
 ]
 
-def seed_all(db: Session):
-    # Check if schemes already exist
-    if db.query(Scheme).count() == 0:
-        for s in VERIFIED_SCHEMES:
-            scheme = Scheme(**s)
-            db.add(scheme)
-    
-    # Check if legal aid resources already exist
-    if db.query(LegalAidResource).count() == 0:
-        for r in VERIFIED_LEGAL_AID:
-            aid = LegalAidResource(**r)
-            db.add(aid)
-            
-    # Check if legal sources already exist
-    if db.query(LegalSource).count() == 0:
-        for src in VERIFIED_LEGAL_SOURCES:
-            source = LegalSource(**src)
-            db.add(source)
-            
-    db.commit()
+def seed_all(db):
+    """Seed verified statutory datasets into database (MongoDB or SQLAlchemy)."""
+    # MongoDB Database support
+    if hasattr(db, "schemes"):
+        if db.schemes.count_documents({}) == 0:
+            schemes_to_insert = []
+            for idx, s in enumerate(VERIFIED_SCHEMES, start=1):
+                doc = dict(s)
+                doc["id"] = idx
+                schemes_to_insert.append(doc)
+            if schemes_to_insert:
+                db.schemes.insert_many(schemes_to_insert)
+                logger.info(f"Seeded {len(schemes_to_insert)} schemes into MongoDB.")
+
+        if db.legal_aid_resources.count_documents({}) == 0:
+            aid_to_insert = []
+            for idx, r in enumerate(VERIFIED_LEGAL_AID, start=1):
+                doc = dict(r)
+                doc["id"] = idx
+                aid_to_insert.append(doc)
+            if aid_to_insert:
+                db.legal_aid_resources.insert_many(aid_to_insert)
+                logger.info(f"Seeded {len(aid_to_insert)} legal aid resources into MongoDB.")
+
+        if db.legal_sources.count_documents({}) == 0:
+            sources_to_insert = []
+            for idx, src in enumerate(VERIFIED_LEGAL_SOURCES, start=1):
+                doc = dict(src)
+                doc["id"] = idx
+                sources_to_insert.append(doc)
+            if sources_to_insert:
+                db.legal_sources.insert_many(sources_to_insert)
+                logger.info(f"Seeded {len(sources_to_insert)} legal sources into MongoDB.")
+        return
+
+    # Fallback SQLAlchemy support
+    try:
+        from app.models.database import Scheme, LegalAidResource, LegalSource
+        if db.query(Scheme).count() == 0:
+            for s in VERIFIED_SCHEMES:
+                scheme = Scheme(**s)
+                db.add(scheme)
+        if db.query(LegalAidResource).count() == 0:
+            for r in VERIFIED_LEGAL_AID:
+                aid = LegalAidResource(**r)
+                db.add(aid)
+        if db.query(LegalSource).count() == 0:
+            for src in VERIFIED_LEGAL_SOURCES:
+                source = LegalSource(**src)
+                db.add(source)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"SQLAlchemy fallback seed skipped: {e}")

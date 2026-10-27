@@ -7,12 +7,19 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
     
-    # AI / LLM Configuration
+    # AI / LLM Configuration (Google Gemini)
+    GEMINI_API_KEY: Optional[str] = None
+    GOOGLE_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    
+    # Legacy / Alternative AI fallback
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
     
-    # Database
-    DATABASE_URL: str = "sqlite:///./nyayaai.db"
+    # Database Configuration (MongoDB Primary)
+    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_DB_NAME: str = "nyayaai"
+    DATABASE_URL: Optional[str] = "mongodb://localhost:27017/nyayaai"
     
     # Security & Limits
     MAX_UPLOAD_MB: int = 15
