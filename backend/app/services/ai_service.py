@@ -7,12 +7,32 @@ from app.schemas.legal import LegalAskResponse, LegalSourceRef
 from app.schemas.documents import DocumentAnalysisResponse, ClauseItem, ObligationItem, DateAmountItem, ConcernItem
 from app.services.legal_rag import LegalRAGService
 
+import os
+
 logger = logging.getLogger(__name__)
 
 class AIService:
     @classmethod
+    def get_gemini_key(cls) -> Optional[str]:
+        """Retrieve valid Google Gemini API key from settings or environment."""
+        candidates = [
+            getattr(settings, "GEMINI_API_KEY", None),
+            getattr(settings, "GOOGLE_API_KEY", None),
+            os.environ.get("GEMINI_API_KEY"),
+            os.environ.get("GOOGLE_API_KEY")
+        ]
+        for key in candidates:
+            if key and key.strip() and not key.startswith("your_"):
+                return key.strip()
+        return None
+
+    @classmethod
     def is_ai_configured(cls) -> bool:
-        return bool(settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.strip() and not settings.OPENAI_API_KEY.startswith("your_"))
+        """Check if either Google Gemini (primary) or OpenAI (fallback) is configured."""
+        if cls.get_gemini_key():
+            return True
+        openai_key = getattr(settings, "OPENAI_API_KEY", None)
+        return bool(openai_key and openai_key.strip() and not openai_key.startswith("your_"))
 
     @classmethod
     async def answer_legal_question(
@@ -28,11 +48,33 @@ class AIService:
         source_refs = LegalRAGService.format_sources(grounded_sources)
         primary_source = grounded_sources[0]
 
-        # If live OpenAI key is configured and not in demo-only mode, call OpenAI
-        if cls.is_ai_configured() and not is_demo:
+        # 1. Primary: If Google Gemini API is configured and not in demo mode
+        gemini_key = cls.get_gemini_key()
+        if gemini_key and not is_demo:
             try:
-                from openai import AsyncOpenAI
-                client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+                from google import genai
+                from google.genai import types
+
+                client = genai.Client(api_key=gemini_key)
+
+                history_lines = []
+                if conversation_history:
+                    for msg in conversation_history[-4:]:
+                        role = getattr(msg, "role", None) or (msg.get("role") if isinstance(msg, dict) else "user")
+                        content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
+                        history_lines.append(f"{role.upper()}: {content}")
+
+                history_context = ""
+                if history_lines:
+                    history_context = "\nConversation Context:\n" + "\n".join(history_lines) + "\n"
+
+                sources_str = json.dumps([{
+                    'title': s['act_title'],
+                    'authority': s['issuing_authority'],
+                    'sections': s['key_sections'],
+                    'summary': s['summary_en'],
+                    'official_url': s['official_url']
+                } for s in grounded_sources], indent=2)
 
                 system_prompt = f"""You are NyayaAI, an objective legal information assistant for India.
 Jurisdiction: Indian legal framework only.
@@ -41,13 +83,7 @@ Language requirement: Respond in {"Hindi" if language == "hi" else "English"}.
 CRITICAL INSTRUCTIONS:
 1. Treat user question as general legal inquiry, NOT request for formal legal counsel.
 2. Ground your answer in the provided verified statutory sources:
-{json.dumps([{
-    'title': s['act_title'],
-    'authority': s['issuing_authority'],
-    'sections': s['key_sections'],
-    'summary': s['summary_en'],
-    'official_url': s['official_url']
-} for s in grounded_sources], indent=2)}
+{sources_str}
 3. DO NOT fabricate, hallucinate, or guess court citations or section numbers not provided.
 4. If facts are ambiguous, state what facts need clarification.
 5. Provide response STRICTLY as valid JSON matching this schema:
@@ -60,11 +96,60 @@ CRITICAL INSTRUCTIONS:
   "clarification_questions": ["Optional clarifying question if user situation has missing details"]
 }}
 """
+                full_prompt = f"{system_prompt}\n{history_context}\nUser Question: {question}"
+
+                response = await client.aio.models.generate_content(
+                    model=getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash"),
+                    contents=full_prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.2,
+                    )
+                )
+
+                raw_text = response.text or "{}"
+                clean_json_str = re.sub(r"^```(?:json)?\s*", "", raw_text.strip())
+                clean_json_str = re.sub(r"\s*```$", "", clean_json_str.strip())
+                data = json.loads(clean_json_str)
+
+                return LegalAskResponse(
+                    short_answer=data.get("short_answer", ""),
+                    explanation_simple=data.get("explanation_simple", ""),
+                    legal_context=data.get("legal_context", ""),
+                    practical_steps=data.get("practical_steps", []),
+                    official_sources=source_refs,
+                    when_to_seek_lawyer=data.get("when_to_seek_lawyer", ""),
+                    clarification_questions=data.get("clarification_questions"),
+                    is_demo_fallback=False
+                )
+            except Exception as e:
+                logger.warning(f"Google Gemini call failed or timed out: {e}. Falling back to grounded rule engine.")
+
+        # 2. Secondary: If OpenAI key is configured as fallback
+        openai_key = getattr(settings, "OPENAI_API_KEY", None)
+        if openai_key and not openai_key.startswith("your_") and not is_demo:
+            try:
+                from openai import AsyncOpenAI
+                client = AsyncOpenAI(api_key=openai_key)
+
+                system_prompt = f"""You are NyayaAI, an objective legal information assistant for India.
+Jurisdiction: Indian legal framework only.
+Language requirement: Respond in {"Hindi" if language == "hi" else "English"}.
+Provide response STRICTLY as valid JSON matching this schema:
+{{
+  "short_answer": "Concise 1-2 sentence direct answer",
+  "explanation_simple": "Detailed explanation in clear, accessible language without legalese",
+  "legal_context": "Explanation of relevant statutory provisions and rights under Indian law",
+  "practical_steps": ["Actionable step 1", "Actionable step 2", "Actionable step 3"],
+  "when_to_seek_lawyer": "Specific triggers when a qualified advocate or legal aid clinic should be consulted",
+  "clarification_questions": ["Optional clarifying question if user situation has missing details"]
+}}
+"""
                 messages = [{"role": "system", "content": system_prompt}]
                 if conversation_history:
                     for msg in conversation_history[-4:]:
-                        role = "user" if msg.role == "user" or msg.get("role") == "user" else "assistant"
-                        content = msg.content if hasattr(msg, "content") else msg.get("content", "")
+                        role = getattr(msg, "role", None) or (msg.get("role") if isinstance(msg, dict) else "user")
+                        content = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
                         messages.append({"role": role, "content": content})
 
                 messages.append({"role": "user", "content": question})
@@ -90,7 +175,7 @@ CRITICAL INSTRUCTIONS:
                     is_demo_fallback=False
                 )
             except Exception as e:
-                logger.warning(f"AI API call failed or timed out: {e}. Falling back to grounded rule engine.")
+                logger.warning(f"OpenAI fallback call failed: {e}. Falling back to grounded rule engine.")
 
         # Robust, high-quality grounded fallback engine
         return cls._generate_grounded_fallback(question, language, category, primary_source, source_refs, is_demo)
@@ -195,11 +280,14 @@ CRITICAL INSTRUCTIONS:
         language: str = "en",
         is_demo: bool = False
     ) -> DocumentAnalysisResponse:
-        # If live OpenAI key is configured and not demo, attempt LLM parsing
-        if cls.is_ai_configured() and not is_demo:
+        # 1. Primary: If Google Gemini API is configured and not demo
+        gemini_key = cls.get_gemini_key()
+        if gemini_key and not is_demo:
             try:
-                from openai import AsyncOpenAI
-                client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+                from google import genai
+                from google.genai import types
+
+                client = genai.Client(api_key=gemini_key)
 
                 system_prompt = f"""You are a professional legal document analyst assisting ordinary Indian citizens.
 Language requirement: Respond in {"Hindi" if language == "hi" else "English"}.
@@ -247,6 +335,48 @@ Output format MUST be strictly JSON with this schema:
     "Question 2 to ask advocate"
   ]
 }}
+"""
+                full_prompt = f"{system_prompt}\n\nDocument Filename: {filename}\n\nDocument Content:\n{extracted_text[:12000]}"
+
+                response = await client.aio.models.generate_content(
+                    model=getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash"),
+                    contents=full_prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1,
+                    )
+                )
+
+                raw_text = response.text or "{}"
+                clean_json_str = re.sub(r"^```(?:json)?\s*", "", raw_text.strip())
+                clean_json_str = re.sub(r"\s*```$", "", clean_json_str.strip())
+                data = json.loads(clean_json_str)
+
+                return DocumentAnalysisResponse(
+                    document_overview=data.get("document_overview", ""),
+                    plain_summary=data.get("plain_summary", ""),
+                    important_clauses=[ClauseItem(**c) for c in data.get("important_clauses", [])],
+                    obligations=[ObligationItem(**o) for o in data.get("obligations", [])],
+                    dates_and_amounts=[DateAmountItem(**d) for d in data.get("dates_and_amounts", [])],
+                    potential_concerns=[ConcernItem(**cn) for cn in data.get("potential_concerns", [])],
+                    questions_to_ask_lawyer=data.get("questions_to_ask_lawyer", []),
+                    original_filename=filename,
+                    extracted_char_count=len(extracted_text),
+                    is_demo=False
+                )
+            except Exception as e:
+                logger.warning(f"Google Gemini document analysis failed: {e}. Falling back to secondary engine.")
+
+        # 2. Secondary: If OpenAI key is configured as fallback
+        openai_key = getattr(settings, "OPENAI_API_KEY", None)
+        if openai_key and not openai_key.startswith("your_") and not is_demo:
+            try:
+                from openai import AsyncOpenAI
+                client = AsyncOpenAI(api_key=openai_key)
+
+                system_prompt = f"""You are a professional legal document analyst assisting ordinary Indian citizens.
+Language requirement: Respond in {"Hindi" if language == "hi" else "English"}.
+Output format MUST be strictly JSON.
 """
                 completion = await client.chat.completions.create(
                     model=settings.OPENAI_MODEL,

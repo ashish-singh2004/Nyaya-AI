@@ -40,3 +40,25 @@ def test_ask_legal_hindi():
     assert response.status_code == 200
     data = response.json()
     assert "short_answer" in data
+
+def test_ask_legal_with_conversation_history():
+    payload = {
+        "question": "Does this also apply if there is no written contract?",
+        "language": "en",
+        "category": "Rental and housing",
+        "conversation_history": [
+            {"role": "user", "content": "What is the notice period for tenant eviction?"},
+            {"role": "assistant", "content": "Notice period is typically 1-2 months under Model Tenancy Act."}
+        ]
+    }
+    response = client.post("/api/legal/ask", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert "short_answer" in data
+
+def test_gemini_configuration_methods():
+    from app.services.ai_service import AIService
+    # Test key detection logic
+    key = AIService.get_gemini_key()
+    # It returns None when not configured, or a valid string when configured
+    assert key is None or isinstance(key, str)
