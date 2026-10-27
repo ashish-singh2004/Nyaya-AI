@@ -43,15 +43,15 @@ NyayaAI bridges the justice access gap through **source-grounded AI, transparent
   * Python 3.11 - 3.13
   * FastAPI (Asynchronous REST API with automatic OpenAPI Swagger docs)
   * Pydantic v2 (Strict request/response schema validation)
-  * SQLAlchemy 2.0 (Relational ORM)
-  * SQLite (Zero-configuration local database seeded on first run)
+  * PyMongo (High-performance MongoDB driver with connection pooling)
+  * MongoDB (Local database running on `mongodb://localhost:27017/nyayaai`, auto-seeded on first run)
 * **Document Processing & AI:**
   * PyMuPDF (`fitz`) for PDF text layer extraction
   * `python-docx` for Word document parsing
-  * Official OpenAI Python SDK (Configurable model: `gpt-4o-mini`)
-  * Deterministic Verified Fallback Engine (Operates seamlessly with or without an OpenAI API key)
+  * Official Google GenAI SDK (`google-genai`, Model: `gemini-2.5-flash`)
+  * Deterministic Verified Grounded Engine (Operates seamlessly with or without an active Gemini API key)
 * **Testing:**
-  * Pytest + `httpx` (18 backend test suites)
+  * Pytest + `httpx` (20 automated backend test suites)
 
 ---
 
@@ -127,8 +127,9 @@ python -m venv venv
 pip install -r requirements.txt
 
 # (Optional) Configure environment variables
-# Copy .env.example to .env if you wish to supply your own OPENAI_API_KEY
-# If OPENAI_API_KEY is omitted, NyayaAI automatically runs its high-fidelity Grounded Fallback Engine.
+# Copy .env.example to .env if you wish to supply your own GEMINI_API_KEY
+# If GEMINI_API_KEY is omitted, NyayaAI automatically runs its high-fidelity Grounded Fallback Engine.
+# MongoDB connects to mongodb://localhost:27017/nyayaai by default and auto-seeds verified data.
 
 # Run backend tests
 pytest -v
