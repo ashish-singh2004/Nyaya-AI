@@ -16,7 +16,7 @@ import { api } from '../services/api';
 import { FraudCheckResponse } from '../types';
 
 export const FraudAwareness: React.FC = () => {
-  const { language } = useApp();
+  const { language, demoScenario } = useApp();
   const [messageText, setMessageText] = useState('');
   const [messageType, setMessageType] = useState('sms');
   const [loading, setLoading] = useState(false);
@@ -27,6 +27,13 @@ export const FraudAwareness: React.FC = () => {
   useEffect(() => {
     api.getFraudSamples().then(setSamples).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (demoScenario === 'scenario-b') {
+      const elecSample = "Dear consumer, your electricity power will be disconnected tonight at 9:30 PM from the electric office because your previous month bill was not updated. Please immediately contact our Electricity Officer Mr. Verma at 98765-XXXXX or download update bill app from http://bijli-bill-update.online/app.apk to avoid power cut.";
+      loadSample(elecSample, 'sms');
+    }
+  }, [demoScenario]);
 
   const handleAnalyze = async (textToAnalyze?: string) => {
     const text = textToAnalyze || messageText;

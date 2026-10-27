@@ -17,7 +17,7 @@ import { api } from '../services/api';
 import { LegalAidResource } from '../types';
 
 export const LegalAidFinder: React.FC = () => {
-  const { language } = useApp();
+  const { language, demoScenario } = useApp();
   const [resources, setResources] = useState<LegalAidResource[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +26,13 @@ export const LegalAidFinder: React.FC = () => {
   const [selectedState, setSelectedState] = useState('All');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (demoScenario === 'scenario-c') {
+      setSelectedState('Delhi');
+      setSelectedCategory('All');
+    }
+  }, [demoScenario]);
 
   const states = [
     'All',

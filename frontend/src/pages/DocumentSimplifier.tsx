@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileText,
   Upload,
@@ -20,13 +20,19 @@ import { api } from '../services/api';
 import { DocumentAnalysisResponse } from '../types';
 
 export const DocumentSimplifier: React.FC = () => {
-  const { language } = useApp();
+  const { language, demoScenario } = useApp();
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<DocumentAnalysisResponse | null>(null);
   const [activeTab, setActiveTab] = useState<'summary' | 'clauses' | 'obligations' | 'financials' | 'concerns' | 'questions'>('summary');
   const [sampleLoading, setSampleLoading] = useState(false);
+
+  useEffect(() => {
+    if (demoScenario === 'scenario-a') {
+      handleLoadSample();
+    }
+  }, [demoScenario]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
