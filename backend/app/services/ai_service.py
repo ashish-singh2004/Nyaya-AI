@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -98,13 +99,18 @@ CRITICAL INSTRUCTIONS:
 """
                 full_prompt = f"{system_prompt}\n{history_context}\nUser Question: {question}"
 
-                response = await client.aio.models.generate_content(
-                    model=getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash"),
-                    contents=full_prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.2,
-                    )
+                model_name = getattr(settings, "GEMINI_MODEL", "gemini-flash-lite-latest")
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        client.models.generate_content,
+                        model=model_name,
+                        contents=full_prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            temperature=0.2,
+                        )
+                    ),
+                    timeout=12.0
                 )
 
                 raw_text = response.text or "{}"
@@ -338,13 +344,18 @@ Output format MUST be strictly JSON with this schema:
 """
                 full_prompt = f"{system_prompt}\n\nDocument Filename: {filename}\n\nDocument Content:\n{extracted_text[:12000]}"
 
-                response = await client.aio.models.generate_content(
-                    model=getattr(settings, "GEMINI_MODEL", "gemini-2.5-flash"),
-                    contents=full_prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.1,
-                    )
+                model_name = getattr(settings, "GEMINI_MODEL", "gemini-flash-lite-latest")
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        client.models.generate_content,
+                        model=model_name,
+                        contents=full_prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            temperature=0.1,
+                        )
+                    ),
+                    timeout=15.0
                 )
 
                 raw_text = response.text or "{}"
